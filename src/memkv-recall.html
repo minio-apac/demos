@@ -1,0 +1,388 @@
+<title>MemKV Recall Demo</title>
+<style>
+  :root{
+    --bg:#F4F6F9; --card:#FFFFFF; --ink:#1C242E; --sub:#55606C; --muted:#8A94A1;
+    --line:#E0E5EB; --red:#E0244C; --redd:#A11E3F; --teal:#0F6E56; --tealbg:#E1F5EE;
+    --coral:#993C1D; --coralbg:#FAECE7; --tint:#FFF3F5; --ink2:#141A21;
+  }
+  :root[data-theme="dark"]{
+    --bg:#10151B; --card:#1A222C; --ink:#E8EDF3; --sub:#A9B4C0; --muted:#75808D;
+    --line:#2A3441; --red:#E15A73; --redd:#F0899B; --teal:#5DCAA5; --tealbg:#0F2A22;
+    --coral:#E0997B; --coralbg:#2B1810; --tint:#2B1B21; --ink2:#0B0F14;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#10151B; --card:#1A222C; --ink:#E8EDF3; --sub:#A9B4C0; --muted:#75808D;
+      --line:#2A3441; --red:#E15A73; --redd:#F0899B; --teal:#5DCAA5; --tealbg:#0F2A22;
+      --coral:#E0997B; --coralbg:#2B1810; --tint:#2B1B21; --ink2:#0B0F14;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",Helvetica,Arial,sans-serif;
+    line-height:1.6}
+  .wrap{max-width:1040px;margin:0 auto;padding:28px 22px 60px}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .brand{display:inline-flex;align-items:center;gap:8px;font-weight:800;color:var(--red);letter-spacing:.5px}
+  .replaytag{font-size:10px;font-weight:800;letter-spacing:1px;color:var(--red);border:1px solid var(--red);
+    border-radius:999px;padding:1px 8px}
+  h1{font-size:26px;margin:6px 0 4px;font-weight:700;text-wrap:balance}
+  .lede{color:var(--sub);font-size:14px;margin:0 0 6px;max-width:70ch}
+  .capnote{color:var(--muted);font-size:12px;margin:0 0 18px;max-width:70ch}
+  .langtog{flex:none;display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .langtog button{border:0;background:var(--card);color:var(--sub);font-size:12px;font-weight:700;padding:6px 12px;cursor:pointer}
+  .langtog button.on{background:var(--red);color:#fff}
+  .ready{display:flex;flex-wrap:wrap;gap:8px 18px;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:12px 16px;font-size:13px;margin-bottom:18px}
+  .ready b{color:var(--ink)} .ready span{color:var(--sub)}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 10px;border-radius:999px}
+  .pill.ok{background:var(--tealbg);color:var(--teal)}
+  .controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:22px}
+  button{font-family:inherit;font-size:14px;font-weight:600;border-radius:9px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);padding:9px 16px;cursor:pointer;transition:.12s}
+  button:hover:not(:disabled){border-color:var(--red)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+  button.primary{background:var(--red);color:#fff;border-color:var(--red);padding:11px 22px;font-size:15px}
+  button.primary:hover:not(:disabled){background:var(--redd)}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}
+  @media (max-width:760px){.cards{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;position:relative;min-height:150px}
+  .card[data-accent=red]{border-top:3px solid var(--red)}
+  .card[data-accent=teal]{border-top:3px solid var(--teal)}
+  .card[data-accent=gray]{border-top:3px solid var(--muted)}
+  .card .tag{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.5px}
+  .card h3{font-size:15px;margin:2px 0 12px;font-weight:600}
+  .status{position:absolute;top:14px;right:16px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;
+    background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+  .status.run{background:var(--tint);color:var(--redd);border-color:var(--redd)}
+  .status.done{background:var(--tealbg);color:var(--teal);border-color:var(--teal)}
+  .big{font-size:40px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .big.pending{color:var(--muted);opacity:.5}
+  .biglabel{font-size:12px;color:var(--sub);margin-top:2px}
+  .sub{font-size:12px;color:var(--muted);margin-top:10px;min-height:16px}
+  .kvpanel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:22px}
+  .kvhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .kvtitle{font-size:14px;font-weight:600} .kvtitle b{color:var(--red)}
+  .kvleg{display:flex;gap:14px;font-size:12px;color:var(--sub);flex-wrap:wrap}
+  .kvleg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .kvleg .e{background:var(--bg);border:1px solid var(--line)} .kvleg .r{background:var(--red)} .kvleg .t{background:var(--teal)}
+  #kvgrid{width:100%;display:block;border-radius:6px}
+  .kvaxis{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px}
+  .kvnote{font-size:12px;color:var(--sub);margin-top:8px;min-height:16px}
+  .reveal{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:22px;display:none}
+  .reveal.show{display:block;animation:fade .4s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.reveal.show{animation:none}}
+  .revrow{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .revbig{font-size:44px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums}
+  .revsub{color:var(--sub);font-size:14px}
+  .bars{display:grid;gap:8px}
+  .barrow{display:grid;grid-template-columns:120px 1fr auto;align-items:center;gap:10px;font-size:13px}
+  .bartrack{background:var(--bg);border-radius:6px;height:22px;overflow:hidden;border:1px solid var(--line)}
+  .barfill{height:100%;width:0;border-radius:6px;transition:width .8s cubic-bezier(.2,.8,.2,1)}
+  .barfill.red{background:var(--red)} .barfill.teal{background:var(--teal)}
+  .barval{font-variant-numeric:tabular-nums;color:var(--sub);min-width:64px;text-align:right}
+  .note{font-size:12px;color:var(--sub);margin-top:8px}
+  .log{background:var(--ink2);color:#cdd6df;border-radius:10px;padding:12px 14px;font-size:12px;
+    font-family:"SF Mono",Consolas,monospace;height:150px;overflow-y:auto;white-space:pre-wrap}
+  .log .t{color:#6fb884}
+  .foot{color:var(--muted);font-size:12px;margin-top:16px}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="brand">MinIO · MemKV <span class="replaytag" id="replaytag">REPLAY</span></div>
+      <h1 id="h1"></h1>
+      <p class="lede" id="lede"></p>
+      <p class="capnote" id="capnote"></p>
+    </div>
+    <div class="langtog">
+      <button id="lang-en" onclick="setLang('en')">EN</button>
+      <button id="lang-ko" onclick="setLang('ko')">한국어</button>
+    </div>
+  </div>
+
+  <div class="ready" id="ready"></div>
+
+  <div class="controls">
+    <button class="primary" id="runAll"></button>
+    <span class="steplabel" style="color:var(--muted);font-size:12px" id="steplabel"></span>
+  </div>
+
+  <div class="cards">
+    <div class="card" data-phase="P1" data-accent="gray">
+      <div class="tag">P1</div><div class="status"></div>
+      <h3></h3><div class="big pending" data-slot="big">—</div><div class="biglabel"></div><div class="sub" data-slot="sub"></div>
+    </div>
+    <div class="card" data-phase="P2" data-accent="red">
+      <div class="tag">P2</div><div class="status"></div>
+      <h3></h3><div class="big pending" data-slot="big">—</div><div class="biglabel"></div><div class="sub" data-slot="sub"></div>
+    </div>
+    <div class="card" data-phase="P3" data-accent="teal">
+      <div class="tag">P3</div><div class="status"></div>
+      <h3></h3><div class="big pending" data-slot="big">—</div><div class="biglabel"></div><div class="sub" data-slot="sub"></div>
+    </div>
+  </div>
+
+  <div class="kvpanel">
+    <div class="kvhead">
+      <div class="kvtitle"><span id="kvtitle"></span> <b>·</b> <span id="kvphase"></span></div>
+      <div class="kvleg">
+        <span><i class="e"></i><span id="leg-e"></span></span>
+        <span><i class="r"></i><span id="leg-r"></span></span>
+        <span><i class="t"></i><span id="leg-t"></span></span>
+      </div>
+    </div>
+    <canvas id="kvgrid" height="176"></canvas>
+    <div class="kvaxis"><span id="axis-x"></span><span id="axis-y"></span></div>
+    <div class="kvnote" id="kvnote"></div>
+  </div>
+
+  <div class="reveal" id="reveal">
+    <div class="revrow"><div class="revbig" id="speedup">—</div><div class="revsub" id="revsub"></div></div>
+    <div class="bars">
+      <div class="barrow"><span id="bar-p2"></span><div class="bartrack"><div class="barfill red" id="barP2"></div></div><span class="barval" id="valP2"></span></div>
+      <div class="barrow"><span id="bar-p3"></span><div class="bartrack"><div class="barfill teal" id="barP3"></div></div><span class="barval" id="valP3"></span></div>
+    </div>
+    <div class="note" id="rev-note"></div>
+  </div>
+
+  <div class="log" id="log"></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+// Captured from a real run: M4 Pro · Qwen2.5-1.5B · ~29K-token document.
+const HEALTH = { model:"qwen2.5-1.5b-instruct-q4_k_m.gguf", doc_tokens:29000, uri:"MemKV (file mode, local)", layers:28 };
+const CAP = {
+  P1:{ prefill_tokens:28990, prefill_ms:35683, save_ms:401 },
+  P2:{ prefill_tokens:28989, prefill_ms:33308 },
+  P3:{ prefill_tokens:21, prefill_ms:95, restore_ms:514, chunks:448, tokens:28989 },
+};
+const REC = CAP.P2.prefill_ms, RCL = CAP.P3.prefill_ms + CAP.P3.restore_ms;
+const SPEEDUP = REC / RCL;
+
+const I18N = {
+  en:{
+    title:"MemKV Recall Demo",
+    h1:"Recompute Tax vs Recall",
+    lede:"When you ask about the same long document again, compare the GPU recomputing the prefill vs recalling the KV from MemKV.",
+    capnote:"Replay of one captured run on a single Mac (Apple M4 Pro, Qwen2.5-1.5B, llama.cpp single-box integration). The numbers are real lab measurements that show the mechanism; they are not a product benchmark. The animation is time-compressed for viewing.",
+    ready_conn:"captured run", ready_model:"Model", ready_doc:"Document", ready_backend:"Backend",
+    run_all:"▶ Replay", replaying:"replaying…",
+    ph_P1:"Cold prefill + Save", ph_P2:"Recompute (re-prefill)", ph_P3:"Recall (MemKV restore)",
+    bl_P1:"Prefill time (cold)", bl_P2:"Prefill time (recompute)", bl_P3:"Restore + prefill",
+    st_idle:"Idle", st_run:"Running", st_done:"Done",
+    kv_title:"KV cache map", kv_idle:"idle",
+    leg_e:"Empty KV", leg_r:"GPU recompute", leg_t:"MemKV recall",
+    axis_x:"← document tokens →", axis_y:"rows: transformer layers",
+    kv_default:"Each cell = KV state for (layer × token slice). P2 recomputes cell by cell on the GPU; P3 lets MemKV fill every layer at once.",
+    kvp_recompute:"{P} · GPU recomputing KV {n}%",
+    kvp_recompute_done:"{P} · GPU recompute done ({t})",
+    kvp_recall_wait:"{P} · awaiting MemKV recall",
+    kvp_recall:"{P} · recalling KV from MemKV ({ms}ms)",
+    kvn_recall:"MemKV restored {tok} tokens (all layers) in {ms}ms — zero recompute",
+    kvn_recompute:"GPU recomputed KV for {tok} tokens × {L} layers from scratch — {t}",
+    sub_P1:"prefill {tok} tokens · save {s}", sub_P2:"same document recomputed · {tok} tokens",
+    sub_P3:"restore {r} + question {tok} tokens {p}",
+    speedup:"{n}× faster", revsub:"recompute {a} vs recall {b}",
+    bar_p2:"P2 recompute", bar_p3:"P3 recall",
+    log_p1:"[P1] cold prefill → save {tok} tokens to MemKV",
+    log_p2:"[P2] restart → recompute the same document",
+    log_p3:"[P3] restart → recall from MemKV, prefill skipped",
+    log_done:"Done · recall was {n}× faster",
+    foot:"Captured from the local MemKV demo (llama.cpp Metal + MemKV file-mode). Numbers are real; this page needs no backend.",
+  },
+  ko:{
+    title:"MemKV 리콜 데모",
+    h1:"재연산 세금 vs 리콜",
+    lede:"같은 긴 문서를 다시 물어볼 때, GPU가 프리필을 다시 계산하는 것과 MemKV에서 KV를 불러오는 것을 비교합니다.",
+    capnote:"맥 한 대(Apple M4 Pro, Qwen2.5-1.5B, llama.cpp 단일 장비 연동)에서 캡처한 실행을 재생합니다. 수치는 원리를 보여주는 랩 실측값이며 제품 벤치마크가 아닙니다. 애니메이션은 보기 편하게 시간을 압축했습니다.",
+    ready_conn:"캡처 재생", ready_model:"모델", ready_doc:"문서", ready_backend:"백엔드",
+    run_all:"▶ 리플레이", replaying:"재생 중…",
+    ph_P1:"콜드 프리필 + 저장", ph_P2:"재연산 (재프리필)", ph_P3:"리콜 (MemKV restore)",
+    bl_P1:"프리필 시간 (콜드)", bl_P2:"프리필 시간 (재계산)", bl_P3:"복원 + 프리필",
+    st_idle:"대기", st_run:"실행 중", st_done:"완료",
+    kv_title:"KV 캐시 맵", kv_idle:"실행 대기",
+    leg_e:"빈 KV", leg_r:"GPU 재계산 (재연산)", leg_t:"MemKV 리콜",
+    axis_x:"← 문서 토큰 진행 →", axis_y:"세로: 트랜스포머 레이어",
+    kv_default:"각 칸 = (레이어 × 토큰 구간)의 KV 상태. P2는 GPU가 한 칸씩 다시 계산하고, P3는 MemKV가 전 레이어를 한 번에 채웁니다.",
+    kvp_recompute:"{P} · GPU가 KV 재계산 중 {n}%",
+    kvp_recompute_done:"{P} · GPU 재계산 완료 ({t})",
+    kvp_recall_wait:"{P} · MemKV 리콜 대기",
+    kvp_recall:"{P} · MemKV에서 KV 리콜 ({ms}ms)",
+    kvn_recall:"MemKV가 {tok}토큰(전 레이어)의 KV를 {ms}ms 만에 복원 — 재계산 0",
+    kvn_recompute:"GPU가 {tok}토큰 × {L}개 레이어의 KV를 처음부터 다시 계산 — {t}",
+    sub_P1:"프리필 {tok}토큰 · 저장 {s}", sub_P2:"같은 문서 재계산 · {tok}토큰",
+    sub_P3:"restore {r} + 질문 {tok}토큰 {p}",
+    speedup:"{n}× 빠름", revsub:"재연산 {a} vs 리콜 {b}",
+    bar_p2:"P2 재연산", bar_p3:"P3 리콜",
+    log_p1:"[P1] 콜드 프리필 → {tok}토큰을 MemKV에 저장",
+    log_p2:"[P2] 재시작 → 같은 문서를 다시 계산",
+    log_p3:"[P3] 재시작 → MemKV에서 리콜, 프리필 생략",
+    log_done:"완료 · 리콜이 {n}× 빠름",
+    foot:"로컬 MemKV 데모(llama.cpp Metal + MemKV file-mode)에서 캡처. 수치는 실측이며 이 페이지는 백엔드가 필요 없습니다.",
+  }
+};
+let LANG = (()=>{try{return localStorage.getItem("memkv_lang")}catch(e){return null}})() || (navigator.language.startsWith("ko")?"ko":"en");
+function t(k,p){ let s=(I18N[LANG][k]!=null?I18N[LANG][k]:(I18N.en[k]!=null?I18N.en[k]:k));
+  if(p) for(const x in p) s=s.replaceAll("{"+x+"}", p[x]); return s; }
+
+const $ = s=>document.querySelector(s);
+const card = p=>document.querySelector(`.card[data-phase="${p}"]`);
+let running=false;
+const LAST = { results:{}, status:{P1:"idle",P2:"idle",P3:"idle"}, kv:null, summary:null };
+function fmt(ms){ if(ms==null) return "—"; return ms>=1000?(ms/1000).toFixed(ms>=10000?0:1)+"s":Math.round(ms)+"ms"; }
+
+function applyLang(){
+  document.documentElement.lang = LANG;
+  document.title = t("title");
+  $("#lang-en").classList.toggle("on", LANG==="en");
+  $("#lang-ko").classList.toggle("on", LANG==="ko");
+  $("#h1").textContent=t("h1"); $("#lede").textContent=t("lede"); $("#capnote").textContent=t("capnote");
+  $("#runAll").textContent = running ? t("replaying") : t("run_all");
+  ["P1","P2","P3"].forEach(p=>{
+    card(p).querySelector("h3").textContent=t("ph_"+p);
+    card(p).querySelector(".biglabel").textContent=t("bl_"+p);
+  });
+  $("#kvtitle").textContent=t("kv_title");
+  $("#leg-e").textContent=t("leg_e"); $("#leg-r").textContent=t("leg_r"); $("#leg-t").textContent=t("leg_t");
+  $("#axis-x").textContent=t("axis_x"); $("#axis-y").textContent=t("axis_y");
+  $("#bar-p2").textContent=t("bar_p2"); $("#bar-p3").textContent=t("bar_p3");
+  $("#foot").textContent=t("foot");
+  renderReady(); ["P1","P2","P3"].forEach(renderCard); renderKVphase(); renderReveal();
+}
+function setLang(l){ LANG=l; try{localStorage.setItem("memkv_lang",l)}catch(e){} applyLang(); }
+
+function renderReady(){
+  $("#ready").innerHTML =
+    `<span class="pill ok">${t("ready_conn")}</span>`+
+    `<span><b>${t("ready_model")}</b> ${HEALTH.model}</span>`+
+    `<span><b>${t("ready_doc")}</b> ~${HEALTH.doc_tokens.toLocaleString()} tokens</span>`+
+    `<span><b>${t("ready_backend")}</b> ${HEALTH.uri}</span>`;
+}
+function statusText(s){ return {idle:t("st_idle"),run:t("st_run"),done:t("st_done")}[s]||""; }
+function setStatus(p,cls){ LAST.status[p]=cls; const s=card(p).querySelector(".status"); s.className="status "+(cls==="idle"?"":cls); s.textContent=statusText(cls); }
+function setBig(p,val,pending){ const b=card(p).querySelector('[data-slot=big]'); b.textContent=val; b.classList.toggle("pending",!!pending); }
+function bigFor(p,r){ return p==="P3"?fmt((r.prefill_ms||0)+(r.restore_ms||0)):fmt(r.prefill_ms); }
+function subFor(p,r){
+  if(p==="P1") return t("sub_P1",{tok:(r.prefill_tokens||0).toLocaleString(), s:fmt(r.save_ms)});
+  if(p==="P2") return t("sub_P2",{tok:(r.prefill_tokens||0).toLocaleString()});
+  return t("sub_P3",{r:fmt(r.restore_ms), tok:r.prefill_tokens, p:fmt(r.prefill_ms)});
+}
+function renderCard(p){
+  const s=card(p).querySelector(".status"); s.className="status "+(LAST.status[p]==="idle"?"":LAST.status[p]); s.textContent=statusText(LAST.status[p]);
+  const r=LAST.results[p];
+  if(r){ setBig(p,bigFor(p,r),false); card(p).querySelector('[data-slot=sub]').textContent=subFor(p,r); }
+}
+function renderKVphase(){
+  const k=LAST.kv;
+  if(!k){ $("#kvphase").textContent=t("kv_idle"); $("#kvnote").textContent=t("kv_default"); return; }
+  if(k.mode==="recompute") $("#kvphase").textContent=t("kvp_recompute",{P:k.phase,n:Math.round((k.pct||0)*100)});
+  else if(k.mode==="recompute_done"){ $("#kvphase").textContent=t("kvp_recompute_done",{P:k.phase,t:fmt(k.prefill_ms)}); $("#kvnote").textContent=t("kvn_recompute",{tok:(k.tok||0).toLocaleString(),L:k.layers,t:fmt(k.prefill_ms)}); }
+  else if(k.mode==="recall_wait") $("#kvphase").textContent=t("kvp_recall_wait",{P:k.phase});
+  else if(k.mode==="recall"){ $("#kvphase").textContent=t("kvp_recall",{P:k.phase,c:k.chunks,ms:Math.round(k.ms)}); $("#kvnote").textContent=t("kvn_recall",{tok:(k.tokens||0).toLocaleString(),c:k.chunks,ms:Math.round(k.ms)}); }
+  else $("#kvphase").textContent=t("kvp_recompute",{P:k.phase,n:0});
+}
+function renderReveal(){
+  const s=LAST.summary; if(!s){ return; }
+  const rc=s.recompute_ms, rl=s.recall_ms, mx=Math.max(rc,rl);
+  $("#speedup").textContent=t("speedup",{n:s.speedup.toFixed(1)});
+  $("#revsub").textContent=t("revsub",{a:fmt(rc),b:fmt(rl)});
+  $("#valP2").textContent=fmt(rc); $("#valP3").textContent=fmt(rl);
+  const p2=$("#barP2"), p3=$("#barP3"), w2=(rc/mx*100)+"%", w3=Math.max(rl/mx*100,2)+"%";
+  const first=!$("#reveal").classList.contains("show");
+  $("#reveal").classList.add("show");
+  if(first){
+    // reveal transitions from display:none — double-rAF so the width transition runs from 0
+    p2.style.width="0"; p3.style.width="0";
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ p2.style.width=w2; p3.style.width=w3; }));
+  } else {
+    // language re-render after completion: set final widths without re-animating
+    p2.style.transition="none"; p3.style.transition="none";
+    p2.style.width=w2; p3.style.width=w3;
+    void p2.offsetWidth; p2.style.transition=""; p3.style.transition="";
+  }
+}
+function logline(msg){ const l=$("#log"); const now=new Date(2026,7,5,13,0,0).toLocaleTimeString(LANG==="ko"?"ko-KR":"en-US",{hour12:false}); l.innerHTML+=`<span class="t">${now}</span>  ${msg}\n`; l.scrollTop=l.scrollHeight; }
+
+// ── KV cache grid (canvas) ─────────────────────────────────
+const KV={cv:null,ctx:null,layers:28,cols:24,fill:0,target:0,color:"red",pulse:0,raf:null,W:0,H:176};
+function kvSetup(){ KV.cv=$("#kvgrid"); KV.ctx=KV.cv.getContext("2d"); resizeKV(); addEventListener("resize",()=>{resizeKV();kvDraw();}); }
+function resizeKV(){ const dpr=devicePixelRatio||1; KV.W=KV.cv.clientWidth||900; KV.cv.width=KV.W*dpr; KV.cv.height=KV.H*dpr; KV.ctx.setTransform(dpr,0,0,dpr,0,0); }
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function kvReset(color){ KV.fill=0; KV.target=0; KV.color=color; kvDraw(); }
+function kvDraw(){
+  const c=KV.ctx; if(!c) return; const W=KV.W,H=KV.H,cols=KV.cols,rows=KV.layers,gx=1,gy=1;
+  const cw=(W-(cols+1)*gx)/cols, ch=(H-(rows+1)*gy)/rows;
+  c.clearRect(0,0,W,H);
+  const empty=css("--bg"),red=css("--red"),teal=css("--teal"),line=css("--line"),filled=KV.fill*cols;
+  for(let r=0;r<rows;r++)for(let col=0;col<cols;col++){
+    let color=empty;
+    if(col<Math.floor(filled)) color=(KV.color==="teal"?teal:red);
+    else if(col<filled){ c.globalAlpha=.35+.4*Math.abs(Math.sin(KV.pulse)); color=(KV.color==="teal"?teal:red); }
+    c.fillStyle=color; c.fillRect(gx+col*(cw+gx),gy+r*(ch+gy),cw,ch); c.globalAlpha=1;
+    if(color===empty){ c.strokeStyle=line; c.lineWidth=.5; c.strokeRect(gx+col*(cw+gx)+.25,gy+r*(ch+gy)+.25,cw-.5,ch-.5); }
+  }
+}
+function kvAnimate(){ KV.pulse+=.18; KV.fill+=(KV.target-KV.fill)*.2; if(Math.abs(KV.target-KV.fill)<.002)KV.fill=KV.target; kvDraw();
+  if(running||Math.abs(KV.target-KV.fill)>.001) KV.raf=requestAnimationFrame(kvAnimate); else KV.raf=null; }
+function kvKick(){ if(!KV.raf) KV.raf=requestAnimationFrame(kvAnimate); }
+
+// ── scripted replay of the captured run ────────────────────
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function lock(v){ running=v; $("#runAll").disabled=v; $("#runAll").textContent = v?t("replaying"):t("run_all"); }
+function resetAll(){
+  $("#reveal").classList.remove("show"); LAST.summary=null; $("#log").innerHTML="";
+  $("#barP2").style.width="0"; $("#barP3").style.width="0";
+  ["P1","P2","P3"].forEach(p=>{ LAST.results[p]=null; setStatus(p,"idle"); setBig(p,"—",true); card(p).querySelector('[data-slot=sub]').textContent=""; });
+  LAST.kv=null; kvReset("red"); renderKVphase();
+}
+// ramp the fill 0→1 over dur, counting the card number toward realMs
+async function grind(phase, realMs, dur){
+  setStatus(phase,"run"); KV.color="red"; kvKick();
+  const t0=performance.now();
+  return new Promise(res=>{
+    (function step(){
+      const f=Math.min(1,(performance.now()-t0)/dur);
+      KV.target=f; LAST.kv={phase,mode:"recompute",pct:f,layers:KV.layers}; renderKVphase();
+      setBig(phase, ((f*realMs)/1000).toFixed(1)+"s", true);
+      if(f<1) requestAnimationFrame(step); else res();
+    })();
+  });
+}
+async function replay(){
+  if(running) return; lock(true); resetAll();
+  // P1 — cold prefill + save
+  logline(t("log_p1",{tok:CAP.P1.prefill_tokens.toLocaleString()}));
+  await grind("P1", CAP.P1.prefill_ms, 3800);
+  LAST.results.P1={phase:"P1",...CAP.P1}; setStatus("P1","done"); renderCard("P1");
+  await sleep(500);
+  // P2 — restart, recompute (the grind)
+  kvReset("red"); logline(t("log_p2"));
+  await grind("P2", CAP.P2.prefill_ms, 5200);
+  LAST.results.P2={phase:"P2",...CAP.P2}; setStatus("P2","done"); renderCard("P2");
+  LAST.kv={phase:"P2",mode:"recompute_done",prefill_ms:CAP.P2.prefill_ms,tok:CAP.P2.prefill_tokens,layers:KV.layers}; renderKVphase();
+  await sleep(900);
+  // P3 — restart, recall (snap)
+  kvReset("teal"); setStatus("P3","run"); LAST.kv={phase:"P3",mode:"recall_wait",layers:KV.layers}; renderKVphase(); kvKick();
+  logline(t("log_p3"));
+  await sleep(500);
+  KV.color="teal"; KV.target=1;
+  LAST.kv={phase:"P3",mode:"recall",chunks:CAP.P3.chunks,ms:CAP.P3.restore_ms,tokens:CAP.P3.tokens,layers:KV.layers}; renderKVphase(); kvKick();
+  await sleep(900);
+  LAST.results.P3={phase:"P3",...CAP.P3}; setStatus("P3","done"); renderCard("P3");
+  // reveal
+  await sleep(400);
+  LAST.summary={recompute_ms:REC, recall_ms:RCL, speedup:SPEEDUP}; renderReveal();
+  logline(t("log_done",{n:SPEEDUP.toFixed(1)}));
+  lock(false);
+}
+$("#runAll").onclick=replay;
+
+kvSetup(); kvReset("red"); applyLang();
+// auto-play once shortly after load
+setTimeout(replay, 700);
+</script>

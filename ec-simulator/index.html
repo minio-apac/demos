@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>EC 장애 시뮬레이터</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: controls → rack (tap to fail) → selected-set verdict + shard strips. Phone-first, single column. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface-2:#f5f7f9; --line:#d5dce3; --line-2:#b7c2cc;
+  --ink:#121a22; --ink-2:#44505c; --muted:#717e8b;
+  --accent:#0b6a80; --accent-soft:#d8ebf1; --accent-ink:#064e5f;
+  --ok:#0e7a5b; --ok-soft:#d6ece3; --warn:#93600b; --warn-soft:#f6e8cd;
+  --crit:#a8322a; --crit-soft:#f5dcd9; --off:#8c99a7; --off-soft:#dde3e9;
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono","IBM Plex Sans KR",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f141a; --surface:#18202a; --surface-2:#1e2732; --line:#2b3643; --line-2:#3d4a59;
+    --ink:#e6ebf1; --ink-2:#b2bdc8; --muted:#86939f;
+    --accent:#4fb0cd; --accent-soft:#12303b; --accent-ink:#97d4e6;
+    --ok:#43b78f; --ok-soft:#10302a; --warn:#d8a54d; --warn-soft:#332716;
+    --crit:#e3746c; --crit-soft:#3a1e1c; --off:#6b7987; --off-soft:#242e39;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --surface:#18202a; --surface-2:#1e2732; --line:#2b3643; --line-2:#3d4a59;
+  --ink:#e6ebf1; --ink-2:#b2bdc8; --muted:#86939f;
+  --accent:#4fb0cd; --accent-soft:#12303b; --accent-ink:#97d4e6;
+  --ok:#43b78f; --ok-soft:#10302a; --warn:#d8a54d; --warn-soft:#332716;
+  --crit:#e3746c; --crit-soft:#3a1e1c; --off:#6b7987; --off-soft:#242e39;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;
+  word-break:keep-all;overflow-wrap:break-word;margin:0}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:24px 56px}
+h1,h2,h3{margin:0;line-height:1.3;text-wrap:balance}
+p{margin:0}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-size:clamp(24px,5vw,34px);font-weight:700;letter-spacing:-.01em;margin-top:6px}
+.sub{color:var(--ink-2);margin-top:8px;max-width:62ch}
+
+/* controls */
+.panel{background:var(--surface);border:1px solid var(--line);padding:14px;margin-top:18px}
+.ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px}
+.ctl label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);letter-spacing:.04em}
+select{font-family:var(--mono);font-size:15px;padding:8px 10px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink);border-radius:0;min-height:42px}
+.scen{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+button{font-family:var(--sans);font-size:14px;font-weight:600;border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink);padding:9px 12px;cursor:pointer;min-height:40px}
+button:hover{border-color:var(--accent)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.reset{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
+
+/* summary */
+.summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}
+.verdict{font-size:17px;font-weight:600;margin-top:10px}
+.pill{font-family:var(--mono);font-size:12px;font-weight:600;padding:3px 9px;border:1px solid;display:inline-flex;gap:6px;align-items:center}
+.pill.ok{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.pill.warn{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+.pill.ro{color:var(--accent-ink);border-color:var(--accent);background:var(--accent-soft)}
+.pill.crit{color:var(--crit);border-color:var(--crit);background:var(--crit-soft)}
+.pill.flat{color:var(--ink-2);border-color:var(--line-2);background:var(--surface-2)}
+
+/* rack */
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line-2);padding-bottom:8px;margin-top:30px;margin-bottom:14px}
+.sec-h h2{font-size:18px}
+.hint{font-size:13px;color:var(--muted)}
+.rack{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.node{background:var(--surface);border:1px solid var(--line);padding:8px}
+.node.dead{border-color:var(--crit);background:var(--crit-soft)}
+.nodebtn{width:100%;display:flex;justify-content:space-between;align-items:center;min-height:34px;padding:4px 6px;margin-bottom:6px;
+  font-family:var(--mono);font-size:12px;background:transparent;border:1px solid var(--line)}
+.node.dead .nodebtn{color:var(--crit);border-color:var(--crit)}
+.nodebtn small{font-size:10.5px;color:var(--muted);font-weight:500}
+.node.dead .nodebtn small{color:var(--crit)}
+.drives{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.dv{min-height:38px;padding:0;font-family:var(--mono);font-size:12px;font-weight:600;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--muted)}
+.dv.sel{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+.dv.x{background:repeating-linear-gradient(135deg,var(--off-soft) 0 5px,transparent 5px 10px);border-color:var(--off);color:var(--off);text-decoration:line-through}
+.dv.sel.x{border-color:var(--crit);color:var(--crit)}
+
+/* sets */
+.sets{display:flex;flex-wrap:wrap;gap:6px}
+.setchip{font-family:var(--mono);font-size:12px;padding:6px 9px;min-height:36px;display:inline-flex;gap:6px;align-items:center}
+.setchip i{width:9px;height:9px;display:inline-block;flex:none}
+.setchip.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:var(--accent)} i.s-crit{background:var(--crit)}
+
+/* detail */
+.detail{background:var(--surface);border:1px solid var(--line);padding:16px;margin-top:12px;display:grid;gap:18px}
+.dhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.dhead h3{font-size:16px;margin-right:4px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.kv div{background:var(--surface-2);padding:9px 11px}
+.kv dt{font-size:11px;color:var(--muted);letter-spacing:.04em}
+.kv dd{margin:2px 0 0;font-family:var(--mono);font-size:16px;font-weight:600}
+.strip h4{font-size:13px;font-weight:600;color:var(--ink-2);margin:0 0 6px}
+.bar{display:grid;gap:3px}
+.sh{font-family:var(--mono);font-size:11px;font-weight:600;min-height:32px;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2);min-width:0}
+.sh.d{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
+.sh.p{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+.sh.read{outline:2px solid var(--ink);outline-offset:-2px}
+.sh.miss{background:repeating-linear-gradient(135deg,var(--off-soft) 0 4px,transparent 4px 8px);border:1px dashed var(--off);color:var(--off)}
+.sh.dim{opacity:.45}
+.note{font-size:13.5px;color:var(--ink-2);margin-top:8px}
+.note b{color:var(--ink);font-weight:600}
+.err{font-family:var(--mono);font-size:13px;color:var(--crit);border:1px solid var(--crit);background:var(--crit-soft);padding:10px;text-align:center}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin-top:4px}
+.legend span{display:flex;gap:6px;align-items:center}
+.legend .sh{min-height:14px;width:16px;font-size:0}
+
+.rules{margin-top:30px;font-size:14px;color:var(--ink-2);display:grid;gap:8px}
+.rules li{margin-left:2px}
+.rules ul{margin:0;padding-left:18px;display:grid;gap:6px}
+.foot{font-size:12px;color:var(--muted);margin-top:20px}
+@media (prefers-reduced-motion:no-preference){.dv,.sh,.node{transition:background .15s,border-color .15s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">MinIO AIStor · Erasure Coding</div>
+  <h1>EC 장애 시뮬레이터</h1>
+  <p class="sub">드라이브나 노드를 눌러 장애를 만들면, 각 Erasure Set이 읽기(GET)와 쓰기(PUT)를 계속할 수 있는지 바로 계산합니다.</p>
+
+  <div class="panel">
+    <div class="ctl">
+      <label for="nodes">노드 수<select id="nodes"></select></label>
+      <label for="dpn">노드당 드라이브<select id="dpn"></select></label>
+      <label for="setsize">Erasure Set 크기<select id="setsize"></select></label>
+      <label for="parity">패리티 (EC:N)<select id="parity"></select></label>
+    </div>
+    <div class="scen">
+      <button type="button" data-s="node1">노드 1대 장애</button>
+      <button type="button" data-s="node2">노드 2대 장애</button>
+      <button type="button" data-s="drives">한 세트에 드라이브 3개 장애</button>
+      <button type="button" data-s="half">절반 분리</button>
+      <button type="button" class="reset" data-s="reset">모두 복구</button>
+    </div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+  <p class="verdict" id="verdict"></p>
+
+  <div class="sec-h"><h2>랙</h2><span class="hint">드라이브를 누르면 그 드라이브만, 노드 이름을 누르면 노드 전체가 꺼집니다. 칸의 글자는 소속 세트입니다.</span></div>
+  <div class="rack" id="rack"></div>
+
+  <div class="sec-h"><h2>세트별 상태</h2><span class="hint">세트를 누르면 아래에 샤드 배치를 보여줍니다.</span></div>
+  <div class="sets" id="sets"></div>
+  <div class="detail" id="detail"></div>
+
+  <div class="rules">
+    <div class="sec-h" style="margin-top:0"><h2>계산 규칙</h2></div>
+    <ul>
+      <li><b>읽기 쿼럼 = 데이터 샤드 수.</b> 세트에서 꺼진 드라이브가 패리티 수 이하이면 기존 객체를 읽을 수 있습니다.</li>
+      <li><b>쓰기 쿼럼 = 데이터 샤드 수.</b> 데이터와 패리티 수가 같으면(예: 4+4) 하나 더 필요합니다.</li>
+      <li><b>기본 설정에서는 장애 중 쓰기의 패리티를 올립니다.</b> 꺼진 드라이브 수만큼 그 객체의 패리티를 올려(세트 절반까지) 평소 보호 수준을 유지합니다. 상향에는 세트별 한도가 있어, 장애가 길어지면 원래 패리티로 씁니다. 그래서 화면에는 보장값과 상향 시 값을 나눠 보여줍니다.</li>
+      <li><b>세트 드라이브의 절반 이상이 꺼지면 쓰기를 거부합니다</b>(503 SlowDown). 네트워크가 갈라져도 양쪽이 동시에 쓰는 일이 생기지 않는 이유입니다.</li>
+      <li>쿼럼은 세트마다 따로 판정합니다. 한 세트가 멈춰도 다른 세트의 객체는 정상입니다.</li>
+    </ul>
+  </div>
+  <p class="foot">세트 배치는 드라이브를 노드에 고르게 나누는 기본 배치를 따릅니다. 실제 샤드 순서는 객체마다 회전하며, 여기서는 이해를 돕기 위해 고정해 그렸습니다. 자세한 내용: <a href="https://docs.min.io/" rel="noopener" style="color:var(--accent)">docs.min.io</a></p>
+</div>
+
+<script>
+(function(){
+  var $=function(s){return document.querySelector(s)};
+  var st={nodes:4,dpn:4,S:8,M:3,off:{},sel:0};
+  var L="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  function defParity(s){ if(s<=1)return 0; if(s<=3)return 1; if(s<=5)return 2; if(s<=7)return 3; return 4; }
+  function total(){return st.nodes*st.dpn}
+  function setSizes(){ var T=total(),r=[]; for(var s=4;s<=16;s++) if(T%s===0) r.push(s); return r; }
+  function defaultSetSize(){ var r=setSizes(); return r.length?r[r.length-1]:total(); }
+  // drives are ordered disk-major (node1/disk1, node2/disk1, ...) so each set spreads across nodes
+  function idx(n,k){return k*st.nodes+n}
+  function setOf(n,k){return Math.floor(idx(n,k)/st.S)}
+  function key(n,k){return n+"-"+k}
+  function nSets(){return total()/st.S}
+  function setDrives(s){ var a=[]; for(var k=0;k<st.dpn;k++)for(var n=0;n<st.nodes;n++){ if(setOf(n,k)===s)a.push({n:n,k:k,pos:idx(n,k)%st.S}); } a.sort(function(x,y){return x.pos-y.pos}); return a; }
+
+  function status(s){
+    var ds=setDrives(s), off=0; ds.forEach(function(d){ if(st.off[key(d.n,d.k)]) off++; });
+    var S=st.S,M=st.M,K=S-M, wq=K+(K===M?1:0);
+    var get=off<=M;
+    var putGuar=(S-off)>=wq;
+    var putUp=off<Math.floor((S+1)/2);
+    var newP=off===0?M:Math.min(M+off,Math.floor(S/2));
+    var lvl= off===0?"ok": !get?"crit": !putUp?"ro":"warn";
+    return {ds:ds,off:off,K:K,wq:wq,get:get,putGuar:putGuar,putUp:putUp,newP:newP,lvl:lvl,margin:M-off};
+  }
+
+  function opt(sel,vals,cur,fmt){ sel.innerHTML=vals.map(function(v){return '<option value="'+v+'"'+(v===cur?' selected':'')+'>'+(fmt?fmt(v):v)+'</option>'}).join(""); }
+  function syncControls(){
+    opt($("#nodes"),[4,6,8,12,16],st.nodes);
+    opt($("#dpn"),[2,4,8],st.dpn);
+    opt($("#setsize"),setSizes(),st.S,function(v){return v+" 드라이브"});
+    var ps=[]; for(var p=1;p<=Math.floor(st.S/2);p++) ps.push(p);
+    opt($("#parity"),ps,st.M,function(v){return "EC:"+v+" ("+(st.S-v)+"+"+v+")"+(v===defParity(st.S)?" 기본값":"")});
+  }
+
+  var LV={ok:["ok","정상"],warn:["warn","장애 · 서비스 계속"],ro:["ro","읽기 전용"],crit:["crit","읽기·쓰기 중단"]};
+
+  function render(){
+    var n=nSets(); if(st.sel>=n) st.sel=0;
+    var stats=[]; for(var s=0;s<n;s++) stats.push(status(s));
+    // rack
+    var h="";
+    for(var i=0;i<st.nodes;i++){
+      var all=true; for(var k=0;k<st.dpn;k++) if(!st.off[key(i,k)]) all=false;
+      h+='<div class="node'+(all?' dead':'')+'"><button type="button" class="nodebtn" data-node="'+i+'"><span>node-'+(i+1)+'</span><small>'+(all?'꺼짐 · 눌러서 켜기':'눌러서 끄기')+'</small></button><div class="drives">';
+      for(k=0;k<st.dpn;k++){
+        var s2=setOf(i,k), x=st.off[key(i,k)];
+        h+='<button type="button" class="dv'+(s2===st.sel?' sel':'')+(x?' x':'')+'" data-d="'+key(i,k)+'" aria-pressed="'+(x?'true':'false')+'" aria-label="node-'+(i+1)+' 드라이브 '+(k+1)+', 세트 '+L[s2]+(x?', 꺼짐':'')+'">'+L[s2]+'</button>';
+      }
+      h+='</div></div>';
+    }
+    $("#rack").innerHTML=h;
+
+    // summary
+    var c={ok:0,warn:0,ro:0,crit:0}; stats.forEach(function(t){c[t.lvl]++});
+    var sm='<span class="pill flat">'+st.nodes+'노드 × '+st.dpn+' = '+total()+'드라이브</span><span class="pill flat">세트 '+st.S+' × '+n+'</span><span class="pill flat">EC:'+st.M+' ('+(st.S-st.M)+'+'+st.M+') · 용량 '+(Math.round((st.S-st.M)/st.S*1000)/10)+'%</span>';
+    ["ok","warn","ro","crit"].forEach(function(l){ if(c[l]) sm+='<span class="pill '+LV[l][0]+'">'+LV[l][1]+' '+c[l]+'</span>'; });
+    $("#summary").innerHTML=sm;
+    var v;
+    if(c.crit) v="세트 "+c.crit+"개가 쿼럼을 잃었습니다. 그 세트의 객체는 노드나 드라이브가 돌아올 때까지 503으로 응답합니다. 데이터가 지워진 것은 아닙니다.";
+    else if(c.ro) v="일부 세트가 읽기 전용입니다. 기존 객체는 읽히지만 새 쓰기는 거부됩니다.";
+    else if(c.warn) v="모든 세트가 읽기와 쓰기를 계속합니다. 남은 여유는 아래 세트별 상태에서 확인하세요.";
+    else v="장애가 없습니다. 드라이브나 노드를 눌러 장애를 만들어 보세요.";
+    $("#verdict").textContent=v;
+
+    // set chips
+    $("#sets").innerHTML=stats.map(function(t,s){
+      return '<button type="button" class="setchip'+(s===st.sel?' on':'')+'" data-set="'+s+'"><i class="s-'+t.lvl+'"></i>세트 '+L[s]+' · '+(st.S-t.off)+'/'+st.S+'</button>';
+    }).join("");
+
+    detail(stats[st.sel]);
+  }
+
+  function strip(cells){ return '<div class="bar" style="grid-template-columns:repeat('+st.S+',minmax(0,1fr))">'+cells.join("")+'</div>'; }
+
+  function detail(t){
+    var S=st.S,M=st.M,K=t.K,s=st.sel;
+    var lv=LV[t.lvl];
+    var h='<div class="dhead"><h3>세트 '+L[s]+'</h3><span class="pill '+lv[0]+'">'+lv[1]+'</span></div>';
+    h+='<dl class="kv"><div><dt>온라인 드라이브</dt><dd>'+(S-t.off)+' / '+S+'</dd></div><div><dt>읽기 쿼럼</dt><dd>'+K+'</dd></div><div><dt>쓰기 쿼럼</dt><dd>'+t.wq+'</dd></div><div><dt>추가로 견딜 드라이브 (읽기)</dt><dd>'+(t.get?t.margin:'—')+'</dd></div></dl>';
+
+    // existing object GET
+    var offAt=t.ds.map(function(d){return !!st.off[key(d.n,d.k)]});
+    var need=0, plan=[]; for(var i=0;i<K;i++) if(offAt[i]) need++;
+    var used=0;
+    var cells=t.ds.map(function(d,i){
+      var lab=i<K?'D'+(i+1):'P'+(i-K+1), cls=i<K?'d':'p';
+      if(offAt[i]) return '<span class="sh miss">×</span>';
+      var read=false;
+      if(i<K) read=true; else if(used<need){ read=true; used++; }
+      return '<span class="sh '+cls+(read&&t.get?' read':'')+(!read?' dim':'')+'">'+lab+'</span>';
+    });
+    h+='<div class="strip"><h4>기존 객체 GET</h4>'+strip(cells);
+    if(!t.get) h+='<p class="note"><b>읽기 불가.</b> 남은 샤드 '+(S-t.off)+'개로는 데이터 샤드 '+K+'개를 복원할 수 없어 503으로 응답합니다. 드라이브가 물리적으로 살아 있다면 돌아오는 즉시 다시 읽힙니다.</p>';
+    else if(need===0) h+='<p class="note"><b>데이터 샤드 '+K+'개만 읽습니다.</b> 패리티는 읽지 않고 복원 계산도 하지 않습니다.</p>';
+    else h+='<p class="note"><b>빠진 데이터 샤드 '+need+'개를 패리티 '+need+'개로 복원합니다.</b> 클라이언트는 평소와 같은 응답을 받고, 빠진 샤드는 드라이브가 돌아오면 백그라운드에서 채웁니다.</p>';
+    h+='</div>';
+
+    // new object PUT
+    h+='<div class="strip"><h4>지금 들어오는 PUT</h4>';
+    if(!t.putUp){
+      h+='<div class="err">503 SlowDown · 세트 드라이브 절반 이상이 꺼져 쓰기를 시도하지 않음</div><p class="note">데이터는 바뀌지 않습니다. 대부분의 S3 SDK가 이 응답을 자동으로 재시도합니다.</p>';
+    } else {
+      var P2=t.newP, K2=S-P2;
+      var c2=t.ds.map(function(d,i){
+        if(offAt[i]) return '<span class="sh miss">×</span>';
+        return '<span class="sh '+(i<K2?'d':'p')+'">'+(i<K2?'D'+(i+1):'P'+(i-K2+1))+'</span>';
+      });
+      h+=strip(c2);
+      if(t.off===0) h+='<p class="note"><b>'+K+'+'+M+'로 기록합니다.</b> 쓰기 쿼럼 '+t.wq+'만 채우면 성공입니다.</p>';
+      else {
+        var keep=(S-t.off)-K2;
+        if(P2>M) h+='<p class="note"><b>이 객체만 패리티를 올려 '+K2+'+'+P2+'로 기록합니다.</b> 남은 드라이브 '+(S-t.off)+'개에 기록되고, 이 중 '+keep+'개가 더 고장 나도 읽을 수 있습니다'+(keep>=M?' (평소와 같은 보호 수준)':' (평소보다 낮음, 세트 절반까지만 올림)')+'.</p>';
+        else h+='<p class="note"><b>'+K+'+'+M+'로 기록합니다.</b> 패리티가 이미 세트 절반이라 더 올리지 않습니다. 빠진 샤드는 드라이브가 돌아오면 채웁니다.</p>';
+        h+='<p class="note">상향 한도를 다 쓴 경우의 보장값: '+(t.putGuar?'<b>쓰기 가능</b> (원래 패리티로 기록, 빠진 샤드는 나중에 복구)':'<b>쓰기 불가</b> (쓰기 쿼럼 '+t.wq+' 미달)')+'</p>';
+      }
+    }
+    h+='</div>';
+    h+='<div class="legend"><span><i class="sh d"></i>데이터 샤드</span><span><i class="sh p"></i>패리티 샤드</span><span><i class="sh read"></i>읽는 샤드</span><span><i class="sh miss"></i>꺼진 드라이브</span></div>';
+    $("#detail").innerHTML=h;
+  }
+
+  function clearOff(){st.off={}}
+  function scenario(name){
+    clearOff();
+    if(name==="node1"||name==="node2"){
+      var cnt=name==="node1"?1:2;
+      for(var i=0;i<cnt;i++) for(var k=0;k<st.dpn;k++) st.off[key(i*Math.max(1,Math.floor(st.nodes/2))%st.nodes,k)]=true;
+    } else if(name==="drives"){
+      var ds=setDrives(st.sel); for(var j=0;j<Math.min(3,ds.length);j++) st.off[key(ds[j].n,ds[j].k)]=true;
+    } else if(name==="half"){
+      for(var n=Math.ceil(st.nodes/2);n<st.nodes;n++) for(k=0;k<st.dpn;k++) st.off[key(n,k)]=true;
+    }
+    render();
+  }
+
+  document.addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b) return;
+    if(b.dataset.d){ var kk=b.dataset.d; if(st.off[kk]) delete st.off[kk]; else st.off[kk]=true; st.sel=setOf(+kk.split("-")[0],+kk.split("-")[1]); render(); }
+    else if(b.dataset.node){ var n=+b.dataset.node, all=true, k;
+      for(k=0;k<st.dpn;k++) if(!st.off[key(n,k)]) all=false;
+      for(k=0;k<st.dpn;k++){ if(all) delete st.off[key(n,k)]; else st.off[key(n,k)]=true; }
+      render(); }
+    else if(b.dataset.set){ st.sel=+b.dataset.set; render(); }
+    else if(b.dataset.s){ scenario(b.dataset.s); }
+  });
+  $("#nodes").addEventListener("change",function(){ st.nodes=+this.value; reshape(); });
+  $("#dpn").addEventListener("change",function(){ st.dpn=+this.value; reshape(); });
+  $("#setsize").addEventListener("change",function(){ st.S=+this.value; st.M=defParity(st.S); clearOff(); st.sel=0; syncControls(); render(); });
+  $("#parity").addEventListener("change",function(){ st.M=+this.value; render(); });
+  function reshape(){
+    var r=setSizes(); if(!r.length){ st.dpn=4; r=setSizes(); }
+    if(r.indexOf(st.S)<0){ st.S=defaultSetSize(); st.M=defParity(st.S); }
+    if(st.M>st.S/2) st.M=defParity(st.S);
+    clearOff(); st.sel=0; syncControls(); render();
+  }
+
+  // example start: 8 nodes × 4 drives, set 8, EC:3, one node down
+  st.nodes=8; st.dpn=4; st.S=8; st.M=3;
+  syncControls();
+  for(var k0=0;k0<st.dpn;k0++) st.off[key(3,k0)]=true;
+  render();
+})();
+</script>
+</body>
+</html>
