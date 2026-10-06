@@ -105,6 +105,20 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
 .sh.read{outline:2px solid var(--ink);outline-offset:-2px}
 .sh.miss{background:repeating-linear-gradient(135deg,var(--off-soft) 0 4px,transparent 4px 8px);border:1px dashed var(--off);color:var(--off)}
 .sh.dim{opacity:.45}
+.sh.off{background:repeating-linear-gradient(135deg,var(--off-soft) 0 4px,transparent 4px 8px);border-color:var(--off);color:var(--off);text-decoration:line-through}
+.cohorts{display:grid;gap:10px}
+.co{border:1px solid var(--line);background:var(--surface-2);padding:10px;display:grid;gap:8px;min-width:0}
+.co.bad{border-color:var(--crit)}
+.co.rej{opacity:.7}
+.co-h{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13.5px}
+.co-h .cfg{font-size:12px;color:var(--ink-2)}
+.co-h .cnt{font-size:12px;color:var(--muted);margin-left:auto}
+.co .note{margin-top:0}
+.events{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.events li{font-size:13px;border:1px solid var(--line);background:var(--surface);padding:4px 10px;display:flex;gap:6px;align-items:center}
+.events li.empty{color:var(--muted)}
+.evn{font-family:var(--mono);color:var(--accent);font-weight:600}
+i.s-part{background:var(--warn)}
 .note{font-size:13.5px;color:var(--ink-2);margin-top:8px}
 .note b{color:var(--ink);font-weight:600}
 .err{font-family:var(--mono);font-size:13px;color:var(--crit);border:1px solid var(--crit);background:var(--crit-soft);padding:10px;text-align:center}
@@ -122,7 +136,7 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
 <div class="wrap">
   <div class="eyebrow">MinIO AIStor · Erasure Coding</div>
   <h1>EC 장애 시뮬레이터</h1>
-  <p class="sub">드라이브나 노드를 눌러 장애를 만들면, 각 Erasure Set이 읽기(GET)와 쓰기(PUT)를 계속할 수 있는지 바로 계산합니다.</p>
+  <p class="sub">드라이브나 노드를 눌러 장애를 만들면, 각 Erasure Set이 읽기(GET)와 쓰기(PUT)를 계속할 수 있는지 바로 계산합니다. 장애가 일어난 순서도 기억해서, 장애 중에 쓰인 객체가 이후 어떻게 되는지까지 보여줍니다.</p>
 
   <div class="panel">
     <div class="ctl">
@@ -130,33 +144,40 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
       <label for="dpn">노드당 드라이브<select id="dpn"></select></label>
       <label for="setsize">Erasure Set 크기<select id="setsize"></select></label>
       <label for="parity">패리티 (EC:N)<select id="parity"></select></label>
+      <label for="budget">장애 중 패리티 상향<select id="budget"><option value="on">한도 남음 (기본)</option><option value="off">한도 소진</option></select></label>
     </div>
     <div class="scen">
+      <button type="button" data-s="story">노드 2대 순차 장애</button>
       <button type="button" data-s="node1">노드 1대 장애</button>
-      <button type="button" data-s="node2">노드 2대 장애</button>
       <button type="button" data-s="drives">한 세트에 드라이브 3개 장애</button>
       <button type="button" data-s="half">절반 분리</button>
-      <button type="button" class="reset" data-s="reset">모두 복구</button>
+      <button type="button" data-s="allon">모두 켜기</button>
+      <button type="button" class="reset" data-s="heal">백그라운드 복구</button>
+      <button type="button" data-s="reset">처음부터</button>
     </div>
   </div>
 
   <div class="summary" id="summary"></div>
   <p class="verdict" id="verdict"></p>
 
-  <div class="sec-h"><h2>랙</h2><span class="hint">드라이브를 누르면 그 드라이브만, 노드 이름을 누르면 노드 전체가 꺼집니다. 칸의 글자는 소속 세트입니다.</span></div>
+  <div class="sec-h"><h2>이벤트</h2><span class="hint">PUT이 계속 들어온다고 가정합니다. 이벤트 사이에 쓰인 객체는 그때 켜져 있던 드라이브에만 기록됩니다.</span></div>
+  <ol class="events" id="events"></ol>
+
+  <div class="sec-h"><h2>랙</h2><span class="hint">드라이브를 누르면 그 드라이브만, 노드 이름을 누르면 노드 전체가 꺼지거나 켜집니다. 칸의 글자는 소속 세트입니다.</span></div>
   <div class="rack" id="rack"></div>
 
-  <div class="sec-h"><h2>세트별 상태</h2><span class="hint">세트를 누르면 아래에 샤드 배치를 보여줍니다.</span></div>
+  <div class="sec-h"><h2>세트별 상태</h2><span class="hint">세트를 누르면 아래에 객체별 샤드 상태를 보여줍니다.</span></div>
   <div class="sets" id="sets"></div>
   <div class="detail" id="detail"></div>
 
   <div class="rules">
     <div class="sec-h" style="margin-top:0"><h2>계산 규칙</h2></div>
     <ul>
-      <li><b>읽기 쿼럼 = 데이터 샤드 수.</b> 세트에서 꺼진 드라이브가 패리티 수 이하이면 기존 객체를 읽을 수 있습니다.</li>
+      <li><b>읽기 쿼럼 = 그 객체의 데이터 샤드 수.</b> 객체마다 기록된 구성(예: 5+3, 4+4)이 다르므로 읽을 수 있는지도 객체마다 다릅니다.</li>
       <li><b>쓰기 쿼럼 = 데이터 샤드 수.</b> 데이터와 패리티 수가 같으면(예: 4+4) 하나 더 필요합니다.</li>
-      <li><b>기본 설정에서는 장애 중 쓰기의 패리티를 올립니다.</b> 꺼진 드라이브 수만큼 그 객체의 패리티를 올려(세트 절반까지) 평소 보호 수준을 유지합니다. 상향에는 세트별 한도가 있어, 장애가 길어지면 원래 패리티로 씁니다. 그래서 화면에는 보장값과 상향 시 값을 나눠 보여줍니다.</li>
+      <li><b>기본 설정에서는 장애 중 쓰기의 패리티를 올립니다.</b> 꺼진 드라이브 수만큼 그 객체의 패리티를 올리고(세트 절반까지), 남은 드라이브에만 기록합니다. 상향에는 세트별 한도가 있어 장애가 길어지면 원래 패리티로 씁니다. "한도 소진"을 고르면 이 경우를 볼 수 있습니다.</li>
       <li><b>세트 드라이브의 절반 이상이 꺼지면 쓰기를 거부합니다</b>(503 SlowDown). 네트워크가 갈라져도 양쪽이 동시에 쓰는 일이 생기지 않는 이유입니다.</li>
+      <li><b>백그라운드 복구는 읽을 수 있는 객체만 고칩니다.</b> 빠진 샤드를 다시 만들려면 먼저 그 객체를 읽을 수 있어야 하기 때문입니다.</li>
       <li>쿼럼은 세트마다 따로 판정합니다. 한 세트가 멈춰도 다른 세트의 객체는 정상입니다.</li>
     </ul>
   </div>
@@ -166,8 +187,11 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
 <script>
 (function(){
   var $=function(s){return document.querySelector(s)};
-  var st={nodes:4,dpn:4,S:8,M:3,off:{},sel:0};
   var L="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  var NUM="①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
+  var MAXC=8;
+  // cohorts[set] = [{ev, offw, written:{pos:true}}] — objects written while that set had `offw` drives offline
+  var st={nodes:4,dpn:4,S:8,M:3,up:true,off:{},sel:0,events:[],cohorts:[]};
 
   function defParity(s){ if(s<=1)return 0; if(s<=3)return 1; if(s<=5)return 2; if(s<=7)return 3; return 4; }
   function total(){return st.nodes*st.dpn}
@@ -178,18 +202,53 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
   function setOf(n,k){return Math.floor(idx(n,k)/st.S)}
   function key(n,k){return n+"-"+k}
   function nSets(){return total()/st.S}
+  function evMark(n){return n<=NUM.length?NUM[n-1]:"("+n+")"}
   function setDrives(s){ var a=[]; for(var k=0;k<st.dpn;k++)for(var n=0;n<st.nodes;n++){ if(setOf(n,k)===s)a.push({n:n,k:k,pos:idx(n,k)%st.S}); } a.sort(function(x,y){return x.pos-y.pos}); return a; }
+  function offPos(s){ var r={}; setDrives(s).forEach(function(d){ if(st.off[key(d.n,d.k)]) r[d.pos]=true; }); return r; }
+  function cnt(o){return Object.keys(o).length}
+  function sameSet(a,b){ var ka=Object.keys(a),kb=Object.keys(b); return ka.length===kb.length&&ka.every(function(k){return b[k]}); }
+
+  // How an object is written when `offw` drives of the set are offline; null = the PUT is rejected.
+  function writePlan(offw){
+    var S=st.S,M=st.M,K=S-M;
+    if(offw>=Math.floor((S+1)/2)) return null;
+    if(offw>0 && st.up){ var P=Math.min(M+offw,Math.floor(S/2)); return {K:S-P,P:P,up:P>M}; }
+    var wq=K+(K===M?1:0);
+    if(S-offw<wq) return null;
+    return {K:K,P:M,up:false};
+  }
+  function wq(plan){return plan.K+(plan.K===plan.P?1:0)}
+
+  function resetHistory(){
+    st.off={}; st.events=[]; st.cohorts=[];
+    for(var s=0;s<nSets();s++){ var w={}; for(var p=0;p<st.S;p++) w[p]=true; st.cohorts.push([{ev:0,offw:0,offAt:{},written:w}]); }
+  }
+  // after an event: start a new write interval in every set whose offline drives changed
+  function record(text){
+    st.events.push(text); var ev=st.events.length;
+    for(var s=0;s<nSets();s++){
+      var cs=st.cohorts[s], last=cs[cs.length-1], op=offPos(s);
+      if(sameSet(last.offAt,op)) continue;
+      var w={}; for(var p=0;p<st.S;p++) if(!op[p]) w[p]=true;
+      cs.push({ev:ev,offw:cnt(op),offAt:op,written:w});
+      if(cs.length>MAXC) cs.splice(1,1);
+    }
+  }
+  function cohortState(c,s){
+    var plan=c.ev===0?{K:st.S-st.M,P:st.M,up:false}:writePlan(c.offw);
+    if(!plan) return {plan:null};
+    var op=offPos(s), have=0, wr=0;
+    for(var p=0;p<st.S;p++){ if(c.written[p]){ wr++; if(!op[p]) have++; } }
+    return {plan:plan,have:have,wr:wr,ok:have>=plan.K};
+  }
 
   function status(s){
-    var ds=setDrives(s), off=0; ds.forEach(function(d){ if(st.off[key(d.n,d.k)]) off++; });
-    var S=st.S,M=st.M,K=S-M, wq=K+(K===M?1:0);
-    var get=off<=M;
-    var putGuar=(S-off)>=wq;
-    var putUp=off<Math.floor((S+1)/2);
-    var newP=off===0?M:Math.min(M+off,Math.floor(S/2));
-    var lvl= off===0?"ok": !get?"crit": !putUp?"ro":"warn";
-    return {ds:ds,off:off,K:K,wq:wq,get:get,putGuar:putGuar,putUp:putUp,newP:newP,lvl:lvl,margin:M-off};
+    var off=cnt(offPos(s)), plan=writePlan(off), bad=0, objs=0;
+    st.cohorts[s].forEach(function(c){ var x=cohortState(c,s); if(!x.plan) return; objs++; if(!x.ok) bad++; });
+    var lvl= bad&&bad===objs?"crit": bad?"part": !plan?"ro": off?"warn":"ok";
+    return {off:off,plan:plan,bad:bad,objs:objs,lvl:lvl};
   }
+  var LV={ok:["ok","정상"],warn:["warn","장애 · 서비스 계속"],ro:["ro","읽기만 가능"],part:["warn","일부 객체 읽기 불가"],crit:["crit","읽기 불가"]};
 
   function opt(sel,vals,cur,fmt){ sel.innerHTML=vals.map(function(v){return '<option value="'+v+'"'+(v===cur?' selected':'')+'>'+(fmt?fmt(v):v)+'</option>'}).join(""); }
   function syncControls(){
@@ -198,14 +257,12 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
     opt($("#setsize"),setSizes(),st.S,function(v){return v+" 드라이브"});
     var ps=[]; for(var p=1;p<=Math.floor(st.S/2);p++) ps.push(p);
     opt($("#parity"),ps,st.M,function(v){return "EC:"+v+" ("+(st.S-v)+"+"+v+")"+(v===defParity(st.S)?" 기본값":"")});
+    $("#budget").value=st.up?"on":"off";
   }
-
-  var LV={ok:["ok","정상"],warn:["warn","장애 · 서비스 계속"],ro:["ro","읽기 전용"],crit:["crit","읽기·쓰기 중단"]};
 
   function render(){
     var n=nSets(); if(st.sel>=n) st.sel=0;
     var stats=[]; for(var s=0;s<n;s++) stats.push(status(s));
-    // rack
     var h="";
     for(var i=0;i<st.nodes;i++){
       var all=true; for(var k=0;k<st.dpn;k++) if(!st.off[key(i,k)]) all=false;
@@ -218,114 +275,128 @@ i.s-ok{background:var(--ok)} i.s-warn{background:var(--warn)} i.s-ro{background:
     }
     $("#rack").innerHTML=h;
 
-    // summary
-    var c={ok:0,warn:0,ro:0,crit:0}; stats.forEach(function(t){c[t.lvl]++});
+    $("#events").innerHTML = st.events.length
+      ? st.events.map(function(t,i){return '<li><span class="evn">'+evMark(i+1)+'</span>'+t+'</li>'}).join("")
+      : '<li class="empty">아직 이벤트가 없습니다. 노드나 드라이브를 눌러 보세요.</li>';
+
+    var c={ok:0,warn:0,ro:0,part:0,crit:0}; stats.forEach(function(t){c[t.lvl]++});
     var sm='<span class="pill flat">'+st.nodes+'노드 × '+st.dpn+' = '+total()+'드라이브</span><span class="pill flat">세트 '+st.S+' × '+n+'</span><span class="pill flat">EC:'+st.M+' ('+(st.S-st.M)+'+'+st.M+') · 용량 '+(Math.round((st.S-st.M)/st.S*1000)/10)+'%</span>';
-    ["ok","warn","ro","crit"].forEach(function(l){ if(c[l]) sm+='<span class="pill '+LV[l][0]+'">'+LV[l][1]+' '+c[l]+'</span>'; });
+    ["ok","warn","ro","part","crit"].forEach(function(l){ if(c[l]) sm+='<span class="pill '+LV[l][0]+'">'+LV[l][1]+' '+c[l]+'</span>'; });
     $("#summary").innerHTML=sm;
+    var putStop=stats.some(function(t){return !t.plan});
     var v;
-    if(c.crit) v="세트 "+c.crit+"개가 쿼럼을 잃었습니다. 그 세트의 객체는 노드나 드라이브가 돌아올 때까지 503으로 응답합니다. 데이터가 지워진 것은 아닙니다.";
-    else if(c.ro) v="일부 세트가 읽기 전용입니다. 기존 객체는 읽히지만 새 쓰기는 거부됩니다.";
+    if(c.crit||c.part) v="일부 세트에 읽을 수 없는 객체가 있습니다. 노드나 드라이브가 돌아올 때까지 503으로 응답하며, 데이터가 지워진 것은 아닙니다."+(putStop?" 새 쓰기도 거부됩니다.":"");
+    else if(c.ro) v="모든 객체를 읽을 수 있지만, 일부 세트는 새 쓰기를 거부합니다.";
     else if(c.warn) v="모든 세트가 읽기와 쓰기를 계속합니다. 남은 여유는 아래 세트별 상태에서 확인하세요.";
-    else v="장애가 없습니다. 드라이브나 노드를 눌러 장애를 만들어 보세요.";
+    else v="장애가 없습니다. 노드나 드라이브를 눌러 장애를 만들어 보세요.";
     $("#verdict").textContent=v;
 
-    // set chips
     $("#sets").innerHTML=stats.map(function(t,s){
       return '<button type="button" class="setchip'+(s===st.sel?' on':'')+'" data-set="'+s+'"><i class="s-'+t.lvl+'"></i>세트 '+L[s]+' · '+(st.S-t.off)+'/'+st.S+'</button>';
     }).join("");
 
-    detail(stats[st.sel]);
+    detail(st.sel, stats[st.sel]);
   }
 
   function strip(cells){ return '<div class="bar" style="grid-template-columns:repeat('+st.S+',minmax(0,1fr))">'+cells.join("")+'</div>'; }
+  function lab(i,K){return i<K?'D'+(i+1):'P'+(i-K+1)}
 
-  function detail(t){
-    var S=st.S,M=st.M,K=t.K,s=st.sel;
-    var lv=LV[t.lvl];
-    var h='<div class="dhead"><h3>세트 '+L[s]+'</h3><span class="pill '+lv[0]+'">'+lv[1]+'</span></div>';
-    h+='<dl class="kv"><div><dt>온라인 드라이브</dt><dd>'+(S-t.off)+' / '+S+'</dd></div><div><dt>읽기 쿼럼</dt><dd>'+K+'</dd></div><div><dt>쓰기 쿼럼</dt><dd>'+t.wq+'</dd></div><div><dt>추가로 견딜 드라이브 (읽기)</dt><dd>'+(t.get?t.margin:'—')+'</dd></div></dl>';
+  function detail(s,t){
+    var S=st.S, op=offPos(s), lv=LV[t.lvl];
+    var h='<div class="dhead"><h3>세트 '+L[s]+'</h3><span class="pill '+lv[0]+'">'+lv[1]+'</span><span class="pill flat">온라인 '+(S-t.off)+' / '+S+'</span></div>';
 
-    // existing object GET
-    var offAt=t.ds.map(function(d){return !!st.off[key(d.n,d.k)]});
-    var need=0, plan=[]; for(var i=0;i<K;i++) if(offAt[i]) need++;
-    var used=0;
-    var cells=t.ds.map(function(d,i){
-      var lab=i<K?'D'+(i+1):'P'+(i-K+1), cls=i<K?'d':'p';
-      if(offAt[i]) return '<span class="sh miss">×</span>';
-      var read=false;
-      if(i<K) read=true; else if(used<need){ read=true; used++; }
-      return '<span class="sh '+cls+(read&&t.get?' read':'')+(!read?' dim':'')+'">'+lab+'</span>';
+    h+='<div class="strip"><h4>객체 읽기 (GET) · 기록된 시점별</h4><div class="cohorts">';
+    st.cohorts[s].slice().reverse().forEach(function(co){
+      var x=cohortState(co,s);
+      var name=co.ev===0?'장애 전 기록':evMark(co.ev)+' 이후 기록';
+      if(!x.plan){
+        h+='<div class="co rej"><div class="co-h"><b>'+name+'</b><span class="pill flat">기록 없음</span></div><p class="note">이 구간의 PUT은 503 SlowDown으로 거부되어 저장된 객체가 없습니다.</p></div>';
+        return;
+      }
+      var K=x.plan.K, cells=[];
+      for(var p=0;p<S;p++){
+        if(!co.written[p]) cells.push('<span class="sh miss">없음</span>');
+        else if(op[p]) cells.push('<span class="sh off">'+lab(p,K)+'</span>');
+        else cells.push('<span class="sh '+(p<K?'d':'p')+'">'+lab(p,K)+'</span>');
+      }
+      var cfg=K+'+'+x.plan.P+(x.plan.up?' · 패리티 상향':'');
+      h+='<div class="co'+(x.ok?'':' bad')+'"><div class="co-h"><b>'+name+'</b><span class="mono cfg">'+cfg+'</span><span class="pill '+(x.ok?'ok':'crit')+'">'+(x.ok?'읽기 가능':'읽기 불가')+'</span><span class="mono cnt">남은 샤드 '+x.have+' / 필요 '+K+(x.ok?' · 여유 '+(x.have-K):'')+'</span></div>'+strip(cells)+'</div>';
     });
-    h+='<div class="strip"><h4>기존 객체 GET</h4>'+strip(cells);
-    if(!t.get) h+='<p class="note"><b>읽기 불가.</b> 남은 샤드 '+(S-t.off)+'개로는 데이터 샤드 '+K+'개를 복원할 수 없어 503으로 응답합니다. 드라이브가 물리적으로 살아 있다면 돌아오는 즉시 다시 읽힙니다.</p>';
-    else if(need===0) h+='<p class="note"><b>데이터 샤드 '+K+'개만 읽습니다.</b> 패리티는 읽지 않고 복원 계산도 하지 않습니다.</p>';
-    else h+='<p class="note"><b>빠진 데이터 샤드 '+need+'개를 패리티 '+need+'개로 복원합니다.</b> 클라이언트는 평소와 같은 응답을 받고, 빠진 샤드는 드라이브가 돌아오면 백그라운드에서 채웁니다.</p>';
+    h+='</div>';
+    if(t.bad) h+='<p class="note"><b>읽기 불가인 객체도 지워진 것은 아닙니다.</b> 꺼진 드라이브가 돌아오면 다시 읽힙니다. 한 대만 먼저 살릴 수 있다면, 어느 쪽을 켜야 위 줄이 모두 "읽기 가능"이 되는지 눌러서 비교해 보세요.</p>';
     h+='</div>';
 
-    // new object PUT
     h+='<div class="strip"><h4>지금 들어오는 PUT</h4>';
-    if(!t.putUp){
-      h+='<div class="err">503 SlowDown · 세트 드라이브 절반 이상이 꺼져 쓰기를 시도하지 않음</div><p class="note">데이터는 바뀌지 않습니다. 대부분의 S3 SDK가 이 응답을 자동으로 재시도합니다.</p>';
+    if(!t.plan){
+      h+='<div class="err">503 SlowDown · 쓰기 쿼럼을 채울 수 없어 쓰기를 시도하지 않음</div><p class="note">데이터는 바뀌지 않습니다. 대부분의 S3 SDK가 이 응답을 자동으로 재시도합니다.</p>';
     } else {
-      var P2=t.newP, K2=S-P2;
-      var c2=t.ds.map(function(d,i){
-        if(offAt[i]) return '<span class="sh miss">×</span>';
-        return '<span class="sh '+(i<K2?'d':'p')+'">'+(i<K2?'D'+(i+1):'P'+(i-K2+1))+'</span>';
-      });
+      var P2=t.plan.P, K2=t.plan.K, c2=[];
+      for(var p2=0;p2<S;p2++) c2.push(op[p2]?'<span class="sh miss">×</span>':'<span class="sh '+(p2<K2?'d':'p')+'">'+lab(p2,K2)+'</span>');
       h+=strip(c2);
-      if(t.off===0) h+='<p class="note"><b>'+K+'+'+M+'로 기록합니다.</b> 쓰기 쿼럼 '+t.wq+'만 채우면 성공입니다.</p>';
-      else {
-        var keep=(S-t.off)-K2;
-        if(P2>M) h+='<p class="note"><b>이 객체만 패리티를 올려 '+K2+'+'+P2+'로 기록합니다.</b> 남은 드라이브 '+(S-t.off)+'개에 기록되고, 이 중 '+keep+'개가 더 고장 나도 읽을 수 있습니다'+(keep>=M?' (평소와 같은 보호 수준)':' (평소보다 낮음, 세트 절반까지만 올림)')+'.</p>';
-        else h+='<p class="note"><b>'+K+'+'+M+'로 기록합니다.</b> 패리티가 이미 세트 절반이라 더 올리지 않습니다. 빠진 샤드는 드라이브가 돌아오면 채웁니다.</p>';
-        h+='<p class="note">상향 한도를 다 쓴 경우의 보장값: '+(t.putGuar?'<b>쓰기 가능</b> (원래 패리티로 기록, 빠진 샤드는 나중에 복구)':'<b>쓰기 불가</b> (쓰기 쿼럼 '+t.wq+' 미달)')+'</p>';
-      }
+      var keep=(S-t.off)-K2;
+      if(t.off===0) h+='<p class="note"><b>'+K2+'+'+P2+'로 기록합니다.</b> 쓰기 쿼럼 '+wq(t.plan)+'만 채우면 성공입니다.</p>';
+      else if(t.plan.up) h+='<p class="note"><b>이 객체만 패리티를 올려 '+K2+'+'+P2+'로 기록합니다.</b> 남은 드라이브 '+(S-t.off)+'개에 기록되고, 이 중 '+keep+'개가 더 고장 나도 읽을 수 있습니다'+(keep>=st.M?' (평소와 같은 보호 수준)':' (평소보다 낮음, 세트 절반까지만 올림)')+'.</p>';
+      else h+='<p class="note"><b>'+K2+'+'+P2+'로 기록합니다.</b> '+(st.up?'패리티가 이미 세트 절반이라 더 올리지 않습니다.':'상향 한도를 다 써서 원래 패리티로 씁니다.')+' 남은 드라이브 '+(S-t.off)+'개에 기록되어 '+keep+'개까지 더 견딥니다. 빠진 샤드는 드라이브가 돌아오면 채웁니다.</p>';
     }
     h+='</div>';
-    h+='<div class="legend"><span><i class="sh d"></i>데이터 샤드</span><span><i class="sh p"></i>패리티 샤드</span><span><i class="sh read"></i>읽는 샤드</span><span><i class="sh miss"></i>꺼진 드라이브</span></div>';
+    h+='<div class="legend"><span><i class="sh d"></i>데이터 샤드</span><span><i class="sh p"></i>패리티 샤드</span><span><i class="sh off"></i>꺼진 드라이브의 샤드</span><span><i class="sh miss"></i>처음부터 기록 안 됨</span></div>';
     $("#detail").innerHTML=h;
   }
 
-  function clearOff(){st.off={}}
+  function nodeText(n,on){return 'node-'+(n+1)+(on?' 복귀':' 꺼짐')}
+  function setNode(n,down){ for(var k=0;k<st.dpn;k++){ if(down) st.off[key(n,k)]=true; else delete st.off[key(n,k)]; } }
+  function heal(){
+    for(var s=0;s<nSets();s++){
+      var op=offPos(s);
+      st.cohorts[s].forEach(function(co){ var x=cohortState(co,s); if(x.plan&&x.ok) for(var p=0;p<st.S;p++) if(!op[p]) co.written[p]=true; });
+    }
+    st.events.push("백그라운드 복구 (읽을 수 있는 객체만)");
+  }
   function scenario(name){
-    clearOff();
-    if(name==="node1"||name==="node2"){
-      var cnt=name==="node1"?1:2;
-      for(var i=0;i<cnt;i++) for(var k=0;k<st.dpn;k++) st.off[key(i*Math.max(1,Math.floor(st.nodes/2))%st.nodes,k)]=true;
+    if(name==="heal"){ heal(); render(); return; }
+    if(name==="allon"){ if(cnt(st.off)){ st.off={}; record("모두 켜짐"); } render(); return; }
+    resetHistory();
+    if(name==="story"){
+      setNode(1,true); record(nodeText(1,false));
+      setNode(Math.min(2,st.nodes-1),true); record(nodeText(Math.min(2,st.nodes-1),false));
+    } else if(name==="node1"){
+      setNode(1,true); record(nodeText(1,false));
     } else if(name==="drives"){
       var ds=setDrives(st.sel); for(var j=0;j<Math.min(3,ds.length);j++) st.off[key(ds[j].n,ds[j].k)]=true;
+      record("세트 "+L[st.sel]+" 드라이브 "+Math.min(3,ds.length)+"개 꺼짐");
     } else if(name==="half"){
-      for(var n=Math.ceil(st.nodes/2);n<st.nodes;n++) for(k=0;k<st.dpn;k++) st.off[key(n,k)]=true;
+      for(var n=Math.ceil(st.nodes/2);n<st.nodes;n++) setNode(n,true);
+      record("네트워크 분리 · node-"+(Math.ceil(st.nodes/2)+1)+"–"+st.nodes+" 연결 끊김");
     }
     render();
   }
 
   document.addEventListener("click",function(e){
     var b=e.target.closest("button"); if(!b) return;
-    if(b.dataset.d){ var kk=b.dataset.d; if(st.off[kk]) delete st.off[kk]; else st.off[kk]=true; st.sel=setOf(+kk.split("-")[0],+kk.split("-")[1]); render(); }
-    else if(b.dataset.node){ var n=+b.dataset.node, all=true, k;
-      for(k=0;k<st.dpn;k++) if(!st.off[key(n,k)]) all=false;
-      for(k=0;k<st.dpn;k++){ if(all) delete st.off[key(n,k)]; else st.off[key(n,k)]=true; }
-      render(); }
+    if(b.dataset.d){ var kk=b.dataset.d, a=kk.split("-"), n=+a[0], k=+a[1], was=!!st.off[kk];
+      if(was) delete st.off[kk]; else st.off[kk]=true;
+      record('node-'+(n+1)+' 드라이브 '+(k+1)+(was?' 복귀':' 꺼짐')); st.sel=setOf(n,k); render(); }
+    else if(b.dataset.node){ var nn=+b.dataset.node, all=true;
+      for(var kx=0;kx<st.dpn;kx++) if(!st.off[key(nn,kx)]) all=false;
+      setNode(nn,!all); record(nodeText(nn,all)); render(); }
     else if(b.dataset.set){ st.sel=+b.dataset.set; render(); }
     else if(b.dataset.s){ scenario(b.dataset.s); }
   });
   $("#nodes").addEventListener("change",function(){ st.nodes=+this.value; reshape(); });
   $("#dpn").addEventListener("change",function(){ st.dpn=+this.value; reshape(); });
-  $("#setsize").addEventListener("change",function(){ st.S=+this.value; st.M=defParity(st.S); clearOff(); st.sel=0; syncControls(); render(); });
-  $("#parity").addEventListener("change",function(){ st.M=+this.value; render(); });
+  $("#setsize").addEventListener("change",function(){ st.S=+this.value; st.M=defParity(st.S); st.sel=0; syncControls(); resetHistory(); render(); });
+  $("#parity").addEventListener("change",function(){ st.M=+this.value; resetHistory(); render(); });
+  $("#budget").addEventListener("change",function(){ st.up=this.value==="on"; render(); });
   function reshape(){
     var r=setSizes(); if(!r.length){ st.dpn=4; r=setSizes(); }
     if(r.indexOf(st.S)<0){ st.S=defaultSetSize(); st.M=defParity(st.S); }
     if(st.M>st.S/2) st.M=defParity(st.S);
-    clearOff(); st.sel=0; syncControls(); render();
+    st.sel=0; syncControls(); resetHistory(); render();
   }
 
-  // example start: 8 nodes × 4 drives, set 8, EC:3, one node down
-  st.nodes=8; st.dpn=4; st.S=8; st.M=3;
-  syncControls();
-  for(var k0=0;k0<st.dpn;k0++) st.off[key(3,k0)]=true;
+  // example start: 4 nodes × 4 drives, set 8, EC:3, node-2 down
+  syncControls(); resetHistory();
+  setNode(1,true); record(nodeText(1,false));
   render();
 })();
 </script>
